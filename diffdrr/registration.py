@@ -21,6 +21,7 @@ class Registration(nn.Module):
         translation: torch.Tensor,  # Initial guess for translations
         parameterization: str,  # Specifies the representation of the rotation
         convention: str = None,  # If `parameterization` is `euler_angles`, specify convention
+        order: str = "tR",  # "Rt" or "tR", rotation or translation first
     ):
         super().__init__()
         self.drr = drr
@@ -28,6 +29,7 @@ class Registration(nn.Module):
         self._translation = nn.Parameter(translation)
         self.parameterization = parameterization
         self.convention = convention
+        self.order = order
 
     def forward(self, **kwargs):
         return self.drr(self.pose, **kwargs)
@@ -39,6 +41,7 @@ class Registration(nn.Module):
             self._translation,
             parameterization=self.parameterization,
             convention=self.convention,
+            order=self.order,
         )
 
     @property

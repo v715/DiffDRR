@@ -100,6 +100,7 @@ def animate(
     drr: DRR,
     parameterization: str,
     convention: str = None,
+    order: str = "tR",
     ground_truth: torch.Tensor | None = None,
     verbose: bool = True,
     dtype=torch.float32,
@@ -155,6 +156,7 @@ def animate(
                 translations,
                 parameterization=parameterization,
                 convention=convention,
+                order=order,
             )
             _ = plot_drr(itr, axs=ax_opt)
             ax_opt.set(xlabel=f"Moving DRR (loss = {row['loss']:.3f})")
