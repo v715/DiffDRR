@@ -300,6 +300,7 @@ def img_to_mesh(
     texture = pyvista.numpy_to_texture(img)
 
     # Make a mesh for the camera and the principal ray
+    pose = pose.compose(drr.origin_to_isocenter)
     source, target = drr.detector(pose, calibration)
     source = source.squeeze().cpu().detach().numpy()
     target = (

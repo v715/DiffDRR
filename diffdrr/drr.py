@@ -76,6 +76,18 @@ class DRR(nn.Module):
             persistent=persistent,
         )
         self.register_buffer(
+            "_isocenter_to_origin",
+            torch.as_tensor(subject.isocenter_to_origin, dtype=torch.float32).unsqueeze(
+                0
+            ),
+            persistent=persistent,
+        )
+        self.register_buffer(
+            "_origin_to_isocenter",
+            self._isocenter_to_origin.inverse(),
+            persistent=persistent,
+        )
+        self.register_buffer(
             "density",
             subject.density.data.squeeze(),
             persistent=persistent,
@@ -119,6 +131,14 @@ class DRR(nn.Module):
     def affine_inverse(self):
         return RigidTransform(self._affine_inverse)
 
+    @property
+    def isocenter_to_origin(self):
+        return RigidTransform(self._isocenter_to_origin)
+
+    @property
+    def origin_to_isocenter(self):
+        return RigidTransform(self._origin_to_isocenter)
+
 # %% ../notebooks/api/00_drr.ipynb 8
 def reshape_subsampled_drr(img: torch.Tensor, detector: Detector, batch_size: int):
     n_points = detector.height * detector.width
@@ -147,6 +167,7 @@ def forward(
         pose = args[0]
     else:
         pose = convert(*args, parameterization=parameterization, convention=convention)
+    pose = pose.compose(self.origin_to_isocenter)
     source, target = self.detector(pose, calibration)
     source = self.affine_inverse(source)
     target = self.affine_inverse(target)

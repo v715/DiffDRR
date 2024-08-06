@@ -48,7 +48,6 @@ def read(
     bone_attenuation_multiplier: float = 1.0,  # Scalar multiplier on density of high attenuation voxels
     fiducials: torch.Tensor = None,  # 3D fiducials in world coordinates
     transform: RigidTransform = None,  # RigidTransform to apply to the volume's affine
-    center_volume: bool = True,  # Move the volume's isocenter to the world origin
     **kwargs,  # Any additional information to be stored in the torchio.Subject
 ) -> Subject:
     """
@@ -118,18 +117,24 @@ def read(
         raise ValueError(f"Unrecognized orientation {orientation}")
 
     # Package the subject
+    isocenter = volume.get_center()
+    isocenter_to_origin = np.array(
+        [
+            [1.0, 0.0, 0.0, -isocenter[0]],
+            [0.0, 1.0, 0.0, -isocenter[1]],
+            [0.0, 0.0, 1.0, -isocenter[2]],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
     subject = Subject(
         volume=volume,
         mask=mask,
         reorient=reorient,
+        isocenter_to_origin=isocenter_to_origin,
         density=density,
         fiducials=fiducials,
         **kwargs,
     )
-
-    # Move the subject's isocenter to the origin in world coordinates
-    if center_volume:
-        subject = canonicalize(subject)
 
     # Apply mask
     if labels is not None:
@@ -140,36 +145,6 @@ def read(
         )
         subject.density.data = subject.density.data * mask
 
-    return subject
-
-# %% ../notebooks/api/03_data.ipynb 7
-from diffdrr.pose import RigidTransform
-
-
-def canonicalize(subject):
-    # Get the original affine matrix
-    affine_original = torch.from_numpy(subject.volume.affine)
-
-    # Move the Subject's isocenter to the origin in world coordinates
-    for image in subject.get_images(intensity_only=False):
-        isocenter = image.get_center()
-        Tinv = np.array(
-            [
-                [1.0, 0.0, 0.0, -isocenter[0]],
-                [0.0, 1.0, 0.0, -isocenter[1]],
-                [0.0, 0.0, 1.0, -isocenter[2]],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-        image.affine = Tinv.dot(image.affine)
-
-    # If fiducials are provided (in world coordinates), reorient them
-    if subject.fiducials is not None:
-        affine_new = torch.tensor(image.affine)
-        affine = affine_new @ affine_original.inverse()
-        affine = affine.to(subject.fiducials)
-        affine = RigidTransform(affine)
-        subject.fiducials = affine(subject.fiducials)
     return subject
 
 # %% ../notebooks/api/03_data.ipynb 8
