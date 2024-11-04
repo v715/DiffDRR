@@ -7,8 +7,6 @@ __all__ = ['RigidTransform', 'convert', 'rotation_9d_to_matrix', 'matrix_to_rota
 # %% ../notebooks/api/06_pose.ipynb 6
 import torch
 
-from einops import rearrange
-
 
 class RigidTransform(torch.nn.Module):
     """
@@ -30,7 +28,7 @@ class RigidTransform(torch.nn.Module):
         return self.matrix[idx]
 
     def forward(self, x):
-        """Apply (a batch) of rigid transforms to a pointcloud."""
+        """Apply a batch of rigid transforms to a pointcloud."""
         x_pad = torch.nn.functional.pad(x, (0, 1), value=1.0)
         return torch.einsum("bij, bnj -> bni", self.matrix[:, :3], x_pad)
 
@@ -54,8 +52,14 @@ class RigidTransform(torch.nn.Module):
         matrix = torch.einsum("bij, bjk -> bik", T.matrix, self.matrix)
         return RigidTransform(matrix)
 
-    def convert(self, parameterization, convention=None):
-        translation = -self.inverse().translation
+    def convert(self, parameterization, convention=None, order="Rt"):
+        if order == "Rt":
+            translation = -self.inverse().translation
+        elif order == "tR":
+            translation = self.translation
+        else:
+            raise ValueError(f"order must be 'Rt' or 'tR', not {order}")
+
         if parameterization == "axis_angle":
             rotation = matrix_to_axis_angle(self.matrix[..., :3, :3])
         elif parameterization == "euler_angles":
@@ -76,14 +80,15 @@ class RigidTransform(torch.nn.Module):
             quaternion = matrix_to_quaternion(self.matrix[..., :3, :3])
             rotation = quaternion_to_rotation_10d(quaternion)
         elif parameterization == "se3_log_map":
-            params = self.get_se3_log()
+            params = self.se3_log()
             rotation = params[..., 3:]
             translation = params[..., :3]
         else:
             raise ValueError(f"Must be in {PARAMETERIZATIONS}, not {parameterization}")
         return rotation, translation
 
-    def get_se3_log(self):
+    @property
+    def se3_log(self):
         return se3_log_map(self.matrix.mT)
 
 # %% ../notebooks/api/06_pose.ipynb 7
@@ -119,7 +124,9 @@ PARAMETERIZATIONS = [
 ]
 
 # %% ../notebooks/api/06_pose.ipynb 11
-def convert(*args, parameterization, convention=None) -> RigidTransform:
+def convert(*args, parameterization, convention=None, order="Rt") -> RigidTransform:
+    if order not in ["Rt", "tR"]:
+        raise ValueError(f"order must be 'Rt' or 'tR', not {order}")
     if parameterization == "euler_angles" and convention is None:
         raise ValueError(
             "convention for Euler angles must be specified as a 3 letter combination of [X, Y, Z]"
@@ -128,42 +135,46 @@ def convert(*args, parameterization, convention=None) -> RigidTransform:
     if parameterization == "axis_angle":
         rotation, translation = args
         rotmat = axis_angle_to_matrix(rotation)
-        camera_center = torch.einsum("bij, bj -> bi", rotmat, translation)
-        matrix = make_matrix(rotmat, camera_center)
+        return convert(rotmat, translation, parameterization="_rotmat", order=order)
     elif parameterization == "euler_angles":
         rotation, translation = args
         rotmat = euler_angles_to_matrix(rotation, convention)
-        camera_center = torch.einsum("bij, bj -> bi", rotmat, translation)
-        matrix = make_matrix(rotmat, camera_center)
+        return convert(rotmat, translation, parameterization="_rotmat", order=order)
     elif parameterization == "matrix":
         return RigidTransform(args[0])
     elif parameterization == "quaternion":
         rotation, translation = args
         rotmat = quaternion_to_matrix(rotation)
-        camera_center = torch.einsum("bij, bj -> bi", rotmat, translation)
-        matrix = make_matrix(rotmat, camera_center)
+        return convert(rotmat, translation, parameterization="_rotmat", order=order)
     elif parameterization == "quaternion_adjugate":
         rotation, translation = args
         quaternion = quaternion_adjugate_to_quaternion(rotation)
-        return convert(quaternion, translation, parameterization="quaternion")
+        return convert(
+            quaternion, translation, parameterization="quaternion", order=order
+        )
     elif parameterization == "rotation_6d":
         rotation, translation = args
         rotmat = rotation_6d_to_matrix(rotation)
-        camera_center = torch.einsum("bij, bj -> bi", rotmat, translation)
-        matrix = make_matrix(rotmat, camera_center)
+        return convert(rotmat, translation, parameterization="_rotmat", order=order)
     elif parameterization == "rotation_9d":
         rotation, translation = args
         rotmat = rotation_9d_to_matrix(rotation)
-        camera_center = torch.einsum("bij, bj -> bi", rotmat, translation)
-        matrix = make_matrix(rotmat, camera_center)
+        return convert(rotmat, translation, parameterization="_rotmat", order=order)
     elif parameterization in ["rotation_10d"]:
         rotation, translation = args
         quaternion = rotation_10d_to_quaternion(rotation)
-        return convert(quaternion, translation, parameterization="quaternion")
+        return convert(
+            quaternion, translation, parameterization="quaternion", order=order
+        )
     elif parameterization == "se3_log_map":
         rotation, translation = args
         params = torch.concat([translation, rotation], axis=-1)
         matrix = se3_exp_map(params).mT
+    elif parameterization == "_rotmat":
+        rotation, translation = args
+        if order == "Rt":
+            translation = torch.einsum("bij, bj -> bi", rotation, translation)
+        matrix = make_matrix(rotation, translation)
     else:
         raise ValueError(f"Must be in {PARAMETERIZATIONS}, not {parameterization}")
 
